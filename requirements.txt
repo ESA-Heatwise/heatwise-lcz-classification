@@ -1,0 +1,11 @@
+torch
+einops
+numpy
+scipy
+rasterio
+h5py
+pandas
+scikit-learn
+seaborn
+matplotlib
+pyyaml

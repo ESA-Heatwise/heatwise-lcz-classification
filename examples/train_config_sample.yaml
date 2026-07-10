@@ -1,0 +1,17 @@
+# Minimal example config for the sample data under data/Berlin/.
+# Run from the repo root:
+#   python processor.py train --h5-dir data/Berlin/Berlin_sample.h5 \
+#       --output-dir examples/output/train --config examples/train_config_sample.yaml
+num_classes: 17
+batch_size: 8
+max_epochs: 2
+patience: 5
+sen2_scale: 10000.0
+num_workers: 0
+random_seed: 42
+
+experiments:
+  - name: HSI-BS
+    hsi_field: hsi_bs
+    use_sen2: false
+    use_lst: false

@@ -1,0 +1,28 @@
+# Example config for `python predict_map.py --config <this file>`
+modal: both        # both | hsi | msi
+use_lst: true      # set true to add the LST branch (weights must have been trained with it)
+title: "Berlin LCZ"
+
+inputs:
+  hsi: /path/to/output/heatwise-hsi-lst-prep-run/03_hsi_final/hsi_bs/Berlin_hsi_bs.tif
+  sen2: /path/to/Sentinel-2/Berlin_S2_2024-10-24.tif
+  lst: /path/to/output/heatwise-hsi-lst-prep-run/04_lst_final/Berlin_lst_final.tif   # only read if use_lst
+
+model:
+  hsi_bands: 30
+  msi_bands: 10
+  lst_bands: 1
+  num_classes: 17
+
+weights: /path/to/output/results/Berlin/best_model_Sen2_HSI-BS_LST.pth
+class_order: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
+
+sen2_scale: 10000.0
+patch_size: 32
+stride: 4
+batch_size: 256
+fill_interior_holes: false
+save_png: true
+map_nodata: 0
+
+output: /path/to/output/results/lcz_map/Berlin_LCZ.tif

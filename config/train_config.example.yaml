@@ -1,0 +1,28 @@
+# Example config for `python train.py --h5-dir <dir_or_file> --output-dir <dir> --config <this file>`
+num_classes: 17
+batch_size: 32
+max_epochs: 100
+patience: 10
+sen2_scale: 10000.0
+num_workers: 4
+random_seed: 42
+
+# Each entry runs one training/eval pass. use_lst is only honored if the H5
+# actually has an 'lst' dataset (see heatwise-patch-extraction toggles.use_lst).
+experiments:
+  # - name: HSI-BS
+  #   hsi_field: hsi_bs # or hsi_pca
+  #   use_sen2: false
+  #   use_lst: false
+  # - name: Sen2
+  #   hsi_field: null
+  #   use_sen2: true
+  #   use_lst: false
+  - name: Sen2+HSI-BS
+    hsi_field: hsi_bs
+    use_sen2: true
+    use_lst: false
+  - name: Sen2+HSI-BS+LST
+    hsi_field: hsi_bs
+    use_sen2: true
+    use_lst: true
