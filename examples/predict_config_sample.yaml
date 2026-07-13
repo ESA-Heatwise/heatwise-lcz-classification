@@ -24,7 +24,7 @@ patch_size: 32
 stride: 16
 batch_size: 32
 fill_interior_holes: false
-save_png: false
+save_png: true
 map_nodata: 0
 
 output: examples/output/Berlin_LCZ_sample.tif
