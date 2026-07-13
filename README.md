@@ -62,17 +62,19 @@ python src/heatwise_lcz_classification/predict_map.py --config ...
 
 ## Sample data
 
-`data/Berlin/` holds a small (~20 MB) self-contained bundle for quick local
-testing: `Berlin_sample.h5` (42 patches, from `heatwise-patch-extraction`'s
-own sample data), the matching `Berlin_hsi_bs.tif`/`Berlin_S2_..._sample.tif`
-rasters (for `predict`), and `best_model_HSI-BS_sample.pth` -- a checkpoint
-trained for 2 epochs on that same tiny H5 (not scientifically useful, just
-enough to exercise `predict` without retraining). `examples/train_config_sample.yaml`
+`data/Berlin/` holds a self-contained bundle (~97 MB) for local testing,
+cropped to the HEATWISE Berlin sample boundary (5.4 x 8.1 km):
+`Berlin_patches.h5` (246 patches across 8 LCZ classes, from
+`heatwise-patch-extraction`'s own sample data), the matching
+`Berlin_hsi_bs.tif`/`Berlin_S2.tif`/`Berlin_lst_final.tif` rasters (for
+`predict`), and `best_model_HSI-BS.pth` -- a checkpoint trained on that same
+H5 (OA 0.75 / Kappa 0.66 on the sample's test split), enough to exercise
+`predict` without retraining. `examples/train_config_sample.yaml`
 and `examples/predict_config_sample.yaml` are matching configs. Run from the
 repo root:
 
 ```bash
-python processor.py train --h5-dir data/Berlin/Berlin_sample.h5 \
+python processor.py train --h5-dir data/Berlin/Berlin_patches.h5 \
   --output-dir examples/output/train --config examples/train_config_sample.yaml
 
 python processor.py predict --config examples/predict_config_sample.yaml
@@ -85,15 +87,15 @@ versioned tag, matching both CWL files' `dockerPull`), so local tests
 exercise the exact tag that will later be pushed to the registry:
 
 ```bash
-docker build -t ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.0 .
+docker build -t ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1 .
 
 docker run --rm -v /path/to/host/output:/app/output \
-  ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.0 \
-  train --h5-dir data/Berlin/Berlin_sample.h5 \
+  ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1 \
+  train --h5-dir data/Berlin/Berlin_patches.h5 \
         --output-dir /app/output/train --config examples/train_config_sample.yaml
 
 docker run --rm -v /path/to/host/output:/app/output \
-  ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.0 \
+  ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1 \
   predict --config examples/predict_config_sample.yaml --output /app/output/Berlin_LCZ.tif
 ```
 
@@ -141,7 +143,7 @@ relative `processor.py` failed until pointed at it via an absolute
   runs only.
 
 > **Rebuild the image before testing this** (`docker build -t
-> ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.0 .`): the Dockerfile's `ENTRYPOINT` was
+> ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1 .`): the Dockerfile's `ENTRYPOINT` was
 > just fixed too (`processor.py` -> `/app/processor.py`, absolute), for the
 > same reason described in `heatwise-patch-extraction`'s README (an actual
 > `cwltool` run against that repo's identical setup failed until fixed).

@@ -15,7 +15,7 @@ title: "Berlin LCZ sample (Docker/CWL)"
 
 inputs:
   hsi: /app/data/Berlin/Berlin_hsi_bs.tif
-  sen2: /app/data/Berlin/Berlin_S2_2024-10-24_sample.tif
+  sen2: /app/data/Berlin/Berlin_S2.tif
 
 model:
   hsi_bands: 30
@@ -23,7 +23,7 @@ model:
   lst_bands: 1
   num_classes: 17
 
-weights: /app/data/Berlin/best_model_HSI-BS_sample.pth
+weights: /app/data/Berlin/best_model_HSI-BS.pth
 class_order: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
 
 sen2_scale: 10000.0

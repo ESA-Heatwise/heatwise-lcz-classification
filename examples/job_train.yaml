@@ -1,6 +1,6 @@
 h5_dir:
   class: File
-  path: ../data/Berlin/Berlin_sample.h5
+  path: ../data/Berlin/Berlin_patches.h5
 config:
   class: File
   path: train_config_sample.yaml

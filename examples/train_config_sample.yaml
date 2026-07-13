@@ -1,11 +1,13 @@
-# Minimal example config for the sample data under data/Berlin/.
-# Run from the repo root:
-#   python processor.py train --h5-dir data/Berlin/Berlin_sample.h5 \
+# Example config for the sample data under data/Berlin/ (246 patches,
+# 8 LCZ classes). Run from the repo root:
+#   python processor.py train --h5-dir data/Berlin/Berlin_patches.h5 \
 #       --output-dir examples/output/train --config examples/train_config_sample.yaml
+# max_epochs is sized so the sample training produces a meaningful
+# multi-class model; early stopping (patience) usually ends the run sooner.
 num_classes: 17
 batch_size: 8
-max_epochs: 2
-patience: 5
+max_epochs: 50
+patience: 10
 sen2_scale: 10000.0
 num_workers: 0
 random_seed: 42
