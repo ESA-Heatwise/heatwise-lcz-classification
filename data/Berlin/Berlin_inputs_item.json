@@ -1,0 +1,32 @@
+{
+  "type": "Feature",
+  "stac_version": "1.0.0",
+  "id": "Berlin",
+  "properties": {
+    "datetime": null,
+    "start_datetime": "2009-08-20T00:00:00Z",
+    "end_datetime": "2023-07-09T23:59:59Z"
+  },
+  "geometry": null,
+  "links": [],
+  "assets": {
+    "hsi": {
+      "href": "Berlin_hsi_bs.tif",
+      "type": "image/tiff; application=geotiff",
+      "roles": ["data"],
+      "title": "Band-selected hyperspectral image"
+    },
+    "sentinel2": {
+      "href": "Berlin_S2.tif",
+      "type": "image/tiff; application=geotiff",
+      "roles": ["data"],
+      "title": "Sentinel-2 auxiliary image"
+    },
+    "lst": {
+      "href": "Berlin_lst_final.tif",
+      "type": "image/tiff; application=geotiff",
+      "roles": ["data"],
+      "title": "Processed land surface temperature image"
+    }
+  }
+}
