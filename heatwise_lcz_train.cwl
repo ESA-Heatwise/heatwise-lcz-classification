@@ -1,71 +1,153 @@
 cwlVersion: v1.2
-class: CommandLineTool
 
-label: HEATWISE LCZ Training
-doc: >
-  EOAP-compatible HEATWISE LCZ_HMSSNet training/evaluation processor. Trains
-  and evaluates one or more modality-combination experiments (defined in the
-  config's `experiments:` list) on a patch H5 dataset, writing checkpoints,
-  confusion matrices and a summary.csv per experiment.
+$namespaces:
+  s: https://schema.org/
 
-  Note: this repo exposes two operations (train / predict) with very
-  different inputs and outputs, so -- unlike heatwise-hsi-lst-prep and
-  heatwise-patch-extraction, which each have one .cwl -- there are two CWL
-  files here: this one and heatwise_lcz_predict.cwl. Both wrap the same
-  processor.py entry point (`train` / `predict` subcommands).
+s:softwareVersion: 0.1.1
+s:version: 0.1.1
 
-requirements:
-  DockerRequirement:
-    # Release-shaped image reference. Before publishing, build/tag this
-    # image locally with the same name so local cwltool runs exercise the
-    # exact tag that will later be pushed to the registry.
-    dockerImageId: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
-    dockerPull: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
+schemas:
+  - http://schema.org/version/9.0/schemaorg-current-http.rdf
 
-arguments:
-  # No baseCommand/`python /app/processor.py` here on purpose: the image's
-  # ENTRYPOINT is `["python", "/app/processor.py"]` (absolute path, so it
-  # resolves regardless of cwltool overriding the working directory).
-  # `docker run` arguments are *appended to* ENTRYPOINT, not a replacement
-  # for it (unlike CMD) -- confirmed by an actual cwltool run against
-  # heatwise-patch-extraction that failed until the redundant
-  # `python`/`processor.py` were removed from the CWL side. So this CWL only
-  # contributes the `train` subcommand + flags.
-  #
-  # train_config_sample.yaml itself has no file paths inside it (only
-  # h5_dir, passed as an explicit CWL File/Directory input, and output_dir,
-  # relative to cwltool's own workdir -- both unaffected by the workdir
-  # issue), so no "_docker" config variant is needed here, unlike
-  # heatwise_lcz_predict.cwl.
-  - train
+$graph:
 
-inputs:
-  h5_dir:
-    type: [File, Directory]
-    inputBinding:
-      prefix: --h5-dir
-    doc: A single patch .h5 file (from heatwise-patch-extraction) or a directory of several.
+  # -------------------------------------------------------------------------
+  # Main EOAP Workflow
+  # -------------------------------------------------------------------------
+  - class: Workflow
+    id: main
+    label: HEATWISE LCZ Training Workflow
+    doc: |
+      EOAP-compatible HEATWISE LCZ classification training workflow.
 
-  config:
-    type: File
-    inputBinding:
-      prefix: --config
-    doc: YAML with num_classes/batch_size/max_epochs/experiments/...
+      The workflow trains and evaluates LCZ_HMSSNet experiments using a
+      geographically isolated HDF5 patch dataset produced by the HEATWISE
+      patch-extraction processor.
 
-  output_dir:
-    type: string
-    default: output
-    inputBinding:
-      prefix: --output-dir
+      The training dataset is provided through a staged STAC catalog
+      directory. The processor generates trained model checkpoints,
+      evaluation metrics, confusion matrices and summary files, together
+      with an output STAC catalog describing the generated artifacts.
 
-outputs:
-  output_directory:
-    type: Directory
-    outputBinding:
-      glob: $(inputs.output_dir)
-    doc: Checkpoints (best_model_<experiment>.pth), confusion matrices, per-class accuracy CSVs, summary.csv.
+    requirements: []
 
-  summary_csv:
-    type: File
-    outputBinding:
-      glob: $(inputs.output_dir)/summary.csv
+    inputs:
+
+      - id: input_catalog
+        type: Directory
+        label: input STAC catalog
+        doc: |
+          Directory containing a STAC catalog named catalog.json referencing
+          the HDF5 patch dataset used for LCZ model training.
+
+          The referenced STAC Item must expose the patch dataset through the
+          `patch_h5` asset.
+
+      - id: config
+        type: File
+        label: training configuration
+        doc: |
+          YAML configuration defining the LCZ training parameters, including
+          number of classes, batch size, maximum epochs, early stopping,
+          random seed, and modality experiments.
+
+      - id: output_dir
+        type: string
+        label: output directory
+        default: "."
+        doc: |
+          Output directory path relative to the CWL working directory.
+          By default, training artifacts are written directly to the working
+          directory for EOAP stage-out.
+
+    steps:
+
+      processor:
+        run: "#lcz_train_processor"
+
+        in:
+          input_catalog: input_catalog
+          config: config
+          output_dir: output_dir
+
+        out:
+          - output
+
+    outputs:
+
+      output:
+        type: Directory
+        outputSource: processor/output
+
+
+  # -------------------------------------------------------------------------
+  # LCZ training CommandLineTool
+  # -------------------------------------------------------------------------
+  - class: CommandLineTool
+    id: lcz_train_processor
+    label: HEATWISE LCZ Training Processor
+    doc: |
+      HEATWISE LCZ_HMSSNet training and evaluation processor.
+
+      The processor resolves the patch HDF5 dataset from the staged STAC
+      catalog, trains the configured LCZ experiments, evaluates the resulting
+      models, and writes the generated training artifacts together with an
+      output STAC catalog.
+
+    requirements:
+
+      DockerRequirement:
+        dockerPull: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
+
+      InlineJavascriptRequirement: {}
+
+    baseCommand: python
+
+    arguments:
+      - /app/processor.py
+      - train
+
+    inputs:
+
+      input_catalog:
+        type: Directory
+        label: input STAC catalog
+        doc: |
+          Directory containing catalog.json and the associated STAC Item
+          referencing the HDF5 training dataset through a `patch_h5` asset.
+
+          The path to catalog.json inside this directory is passed to the
+          processor through the --input-catalog argument.
+        inputBinding:
+          prefix: --input-catalog
+          valueFrom: $(self.path + "/catalog.json")
+
+      config:
+        type: File
+        label: training configuration
+        doc: |
+          YAML configuration controlling LCZ_HMSSNet training and evaluation,
+          including experiments, number of classes, batch size, epochs,
+          early stopping, scaling, and random seed.
+        inputBinding:
+          prefix: --config
+
+      output_dir:
+        type: string
+        label: output directory
+        default: "."
+        doc: |
+          Output directory path relative to the CWL working directory.
+        inputBinding:
+          prefix: --output-dir
+
+    outputs:
+
+      output:
+        type: Directory
+        doc: |
+          Complete CWL working directory containing the generated training
+          artifacts, including model checkpoints, evaluation metrics,
+          confusion matrices, summary files, and the generated STAC catalog.
+        outputBinding:
+          glob: "."
