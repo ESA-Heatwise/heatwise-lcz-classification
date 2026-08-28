@@ -1,0 +1,166 @@
+name: Validate and test CWL
+
+on:
+  push:
+    branches:
+      - eoap-compliance
+    paths:
+      - "heatwise_lcz_train.cwl"
+      - "heatwise_lcz_predict.cwl"
+      - "Dockerfile"
+      - "processor.py"
+      - "requirements.txt"
+      - "src/**"
+      - "data/**"
+      - "examples/**"
+      - ".github/workflows/validate-cwl.yml"
+  workflow_dispatch:
+
+jobs:
+  validate-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validation tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cwltool "pystac[validation]"
+
+      - name: Check Python syntax
+        run: |
+          python -m py_compile processor.py
+          python -m py_compile src/heatwise_lcz_classification/stac_io.py
+
+      - name: Validate training CWL
+        run: cwltool --validate heatwise_lcz_train.cwl
+
+      - name: Validate prediction CWL
+        run: cwltool --validate heatwise_lcz_predict.cwl
+
+      - name: Validate input STAC
+        run: |
+          python - <<'PY'
+          import pystac
+
+          catalog = pystac.Catalog.from_file(
+              "data/Berlin/catalog.json"
+          )
+
+          catalog.validate_all()
+          print("Input STAC is valid.")
+          PY
+
+      - name: Build processor Docker image
+        run: |
+          docker build \
+            -t ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1 \
+            .
+
+      - name: Run training CWL example
+        run: |
+          mkdir -p cwl-output/train
+
+          cwltool \
+            --outdir cwl-output/train \
+            heatwise_lcz_train.cwl \
+            examples/job_train.yaml
+
+      - name: Validate training output STAC
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pystac
+
+          catalogs = list(Path("cwl-output/train").rglob("catalog.json"))
+
+          if not catalogs:
+              raise RuntimeError("No training output catalog.json was generated")
+
+          for catalog_path in catalogs:
+              print(f"Validating {catalog_path}")
+              catalog = pystac.Catalog.from_file(str(catalog_path))
+              catalog.validate_all()
+
+          print("Training output STAC is valid.")
+          PY
+
+      - name: Check training outputs
+        run: |
+          MODEL_COUNT=$(find cwl-output/train -type f -name "*.pth" | wc -l)
+          SUMMARY_COUNT=$(find cwl-output/train -type f -name "summary.csv" | wc -l)
+
+          if [ "$MODEL_COUNT" -lt 1 ]; then
+            echo "No trained model checkpoint was generated"
+            exit 1
+          fi
+
+          if [ "$SUMMARY_COUNT" -lt 1 ]; then
+            echo "No summary.csv was generated"
+            exit 1
+          fi
+
+          echo "Generated model checkpoints:"
+          find cwl-output/train -type f -name "*.pth" -print
+
+          echo "Generated summaries:"
+          find cwl-output/train -type f -name "summary.csv" -print
+
+      - name: Run prediction CWL example
+        run: |
+          mkdir -p cwl-output/predict
+
+          cwltool \
+            --outdir cwl-output/predict \
+            heatwise_lcz_predict.cwl \
+            examples/job_predict.yaml
+
+      - name: Validate prediction output STAC
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pystac
+
+          catalogs = list(Path("cwl-output/predict").rglob("catalog.json"))
+
+          if not catalogs:
+              raise RuntimeError("No prediction output catalog.json was generated")
+
+          for catalog_path in catalogs:
+              print(f"Validating {catalog_path}")
+              catalog = pystac.Catalog.from_file(str(catalog_path))
+              catalog.validate_all()
+
+          print("Prediction output STAC is valid.")
+          PY
+
+      - name: Check prediction outputs
+        run: |
+          TIF_COUNT=$(find cwl-output/predict -type f -name "*.tif" | wc -l)
+
+          if [ "$TIF_COUNT" -lt 1 ]; then
+            echo "No LCZ GeoTIFF output was generated"
+            exit 1
+          fi
+
+          echo "Generated LCZ GeoTIFF files:"
+          find cwl-output/predict -type f -name "*.tif" -print
+
+          echo "Generated preview files:"
+          find cwl-output/predict -type f -name "*_preview.png" -print || true
+
+      - name: Show generated outputs
+        if: always()
+        run: |
+          echo "=== Training outputs ==="
+          find cwl-output/train -maxdepth 6 -type f -print | sort || true
+
+          echo "=== Prediction outputs ==="
+          find cwl-output/predict -maxdepth 6 -type f -print | sort || true
