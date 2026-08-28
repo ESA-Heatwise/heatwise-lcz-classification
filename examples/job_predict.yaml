@@ -1,4 +1,13 @@
 config:
   class: File
   path: predict_config_sample_docker.yaml
-output: output/Berlin_LCZ_sample.tif
+
+input_catalog:
+  class: Directory
+  path: ../data/Berlin
+
+weights:
+  class: File
+  path: ../data/Berlin/best_model_HSI-BS.pth
+
+output: Berlin_LCZ_sample.tif
