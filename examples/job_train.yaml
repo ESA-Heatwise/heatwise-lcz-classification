@@ -1,7 +1,9 @@
-h5_dir:
-  class: File
-  path: ../data/Berlin/Berlin_patches.h5
+input_catalog:
+  class: Directory
+  path: ../data/Berlin
+
 config:
   class: File
   path: train_config_sample.yaml
-output_dir: output/train
+
+output_dir: "."
