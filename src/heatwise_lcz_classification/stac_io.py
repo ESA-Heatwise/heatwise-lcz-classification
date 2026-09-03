@@ -1,314 +1,171 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+HEATWISE LCZ classification processor -- single command-line entry point.
+
+Wraps train.py (train/evaluate LCZ_HMSSNet on patch H5 datasets) and
+predict_map.py (sliding-window whole-scene inference) behind two subcommands,
+so this repo exposes the same "one processor.py entry point" shape as
+heatwise-hsi-lst-prep and heatwise-patch-extraction (and matches the EOAP
+reference structure: a single processor.py callable by a user, Docker
+container, or CWL description).
+
+Subcommands:
+  train      Train/evaluate LCZ_HMSSNet on one or more patch H5 files.
+  predict    Sliding-window whole-scene inference -> LCZ map GeoTIFF.
+
+train.py and predict_map.py remain runnable standalone (unchanged CLI), for
+anyone already using them directly.
+"""
 from __future__ import annotations
 
-import json
-import mimetypes
-from datetime import datetime, timezone
+import argparse
+import sys
 from pathlib import Path
 
+import yaml
 
-PROCESSOR_NAME = "heatwise-lcz-classification"
-PROCESSOR_VERSION = "0.1.1"
+_REPO_ROOT = Path(__file__).resolve().parent
+_PKG_DIR = _REPO_ROOT / "src" / "heatwise_lcz_classification"
+sys.path.insert(0, str(_REPO_ROOT))
+# train.py/predict_map.py import their sibling model.py with a plain
+# `from model import ...` (so they also stay independently runnable as
+# scripts); add their package directory too so that import resolves the
+# same way when processor.py imports them as package members.
+sys.path.insert(0, str(_PKG_DIR))
+
+from src.heatwise_lcz_classification.train import run_train
+from src.heatwise_lcz_classification.predict_map import run_predict
+from src.heatwise_lcz_classification.stac_io import (
+    patch_h5_from_stac,
+    prediction_inputs_from_stac,
+    write_training_catalog,
+    write_prediction_catalog,
+)
 
 
-def _read_json(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+def cmd_train(args):
+    with open(args.config, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    if args.input_catalog:
+        h5_input = patch_h5_from_stac(args.input_catalog)
+    else:
+        h5_input = args.h5_dir
+
+    run_train(h5_input, args.output_dir, cfg)
+
+    catalog_path = write_training_catalog(args.output_dir)
+
+    print(f"[processor] Training input: {h5_input}")
+    print(f"[processor] Output STAC catalog: {catalog_path}")
 
 
-def _resolve_href(item_path: Path, href: str) -> str:
-    path = Path(href)
+def cmd_predict(args):
+    with open(args.config, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
 
-    if path.is_absolute():
-        return str(path)
-
-    return str((item_path.parent / path).resolve())
-
-
-def _catalog_items(catalog_path: str | Path) -> list[tuple[Path, dict]]:
-    catalog_path = Path(catalog_path).resolve()
-
-    if not catalog_path.exists():
-        raise FileNotFoundError(f"STAC catalog not found: {catalog_path}")
-
-    catalog = _read_json(catalog_path)
-    items = []
-
-    for link in catalog.get("links", []):
-        if link.get("rel") != "item":
-            continue
-
-        href = link.get("href")
-        if not href:
-            continue
-
-        item_path = Path(href)
-
-        if not item_path.is_absolute():
-            item_path = (catalog_path.parent / item_path).resolve()
-
-        items.append((item_path, _read_json(item_path)))
-
-    if not items:
-        raise ValueError(
-            f"No STAC Item links found in input catalog: {catalog_path}"
+    if args.input_catalog:
+        cfg["inputs"] = prediction_inputs_from_stac(
+            args.input_catalog
         )
 
-    return items
+    if args.weights:
+        cfg["weights"] = args.weights
+
+    if args.output:
+        cfg["output"] = args.output
+
+    run_predict(cfg)
+
+    catalog_path = write_prediction_catalog(cfg["output"])
+
+    print(f"[processor] Output LCZ map: {cfg['output']}")
+    print(f"[processor] Output STAC catalog: {catalog_path}")
 
 
-def patch_h5_from_stac(catalog_path: str | Path) -> str:
-    """
-    Resolve the patch_h5 asset produced by heatwise-patch-extraction.
-    """
-    for item_path, item in _catalog_items(catalog_path):
-        assets = item.get("assets", {})
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="HEATWISE LCZ classification processor")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-        if "patch_h5" in assets:
-            return _resolve_href(
-                item_path,
-                assets["patch_h5"]["href"],
-            )
-
-    raise ValueError(
-        "No STAC Item contains the required `patch_h5` asset."
+    p = sub.add_parser(
+        "train",
+        help="Train/evaluate LCZ_HMSSNet on patch H5 file(s).",
     )
-
-
-def prediction_inputs_from_stac(
-    catalog_path: str | Path,
-    city: str | None = None,
-) -> dict:
-    """
-    Resolve HSI, Sentinel-2 and optional LST inputs for LCZ prediction.
-    """
-    candidates = []
-
-    for item_path, item in _catalog_items(catalog_path):
-        assets = item.get("assets", {})
-
-        if "hsi" not in assets or "sentinel2" not in assets:
-            continue
-
-        candidates.append((item_path, item))
-
-    if not candidates:
-        raise ValueError(
-            "No STAC Item contains both required prediction assets: "
-            "`hsi` and `sentinel2`."
-        )
-
-    selected_path, selected_item = candidates[0]
-
-    if city:
-        city_lower = city.lower()
-
-        for item_path, item in candidates:
-            if str(item.get("id", "")).lower() == city_lower:
-                selected_path, selected_item = item_path, item
-                break
-
-    assets = selected_item["assets"]
-
-    inputs = {
-        "hsi": _resolve_href(
-            selected_path,
-            assets["hsi"]["href"],
+    
+    train_input = p.add_mutually_exclusive_group(required=True)
+    
+    train_input.add_argument(
+        "--h5-dir",
+        help=(
+            "Single .h5 file or directory of .h5 files. "
+            "Used for local/non-EOAP execution."
         ),
-        "sen2": _resolve_href(
-            selected_path,
-            assets["sentinel2"]["href"],
-        ),
-    }
-
-    if "lst" in assets:
-        inputs["lst"] = _resolve_href(
-            selected_path,
-            assets["lst"]["href"],
-        )
-
-    return inputs
-
-
-def _asset_media_type(path: Path) -> str:
-    suffix = path.suffix.lower()
-
-    explicit_types = {
-        ".pth": "application/octet-stream",
-        ".pt": "application/octet-stream",
-        ".csv": "text/csv",
-        ".tif": "image/tiff; application=geotiff",
-        ".tiff": "image/tiff; application=geotiff",
-        ".png": "image/png",
-        ".json": "application/json",
-    }
-
-    if suffix in explicit_types:
-        return explicit_types[suffix]
-
-    guessed, _ = mimetypes.guess_type(path.name)
-    return guessed or "application/octet-stream"
-
-
-def write_training_catalog(
-    output_dir: str | Path,
-    processor_name: str = PROCESSOR_NAME,
-    processor_version: str = PROCESSOR_VERSION,
-) -> Path:
-    """
-    Write a STAC catalog describing the generated training artifacts.
-    """
-    output_dir = Path(output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    catalog_path = output_dir / "catalog.json"
-    item_filename = "training_artifacts_item.json"
-    item_path = output_dir / item_filename
-
-    files = [
-        path
-        for path in output_dir.rglob("*")
-        if path.is_file()
-        and path.name not in {"catalog.json", item_filename}
-    ]
-
-    if not files:
-        raise ValueError(
-            f"No training artifacts found in output directory: {output_dir}"
-        )
-
-    assets = {}
-
-    for index, path in enumerate(sorted(files)):
-        key = f"artifact_{index + 1}"
-
-        if path.name == "summary.csv":
-            key = "summary"
-
-        assets[key] = {
-            "href": path.relative_to(output_dir).as_posix(),
-            "type": _asset_media_type(path),
-            "roles": ["data"],
-            "title": path.name,
-        }
-
-    item = {
-        "type": "Feature",
-        "stac_version": "1.0.0",
-        "stac_extensions": [
-            "https://stac-extensions.github.io/processing/v1.2.0/schema.json"
-        ],
-        "id": "lcz-training-artifacts",
-        "geometry": None,
-        "properties": {
-            "datetime": datetime.now(timezone.utc).isoformat(),
-            "processing:software": {
-                processor_name: processor_version
-            },
-        },
-        "links": [],
-        "assets": assets,
-    }
-
-    catalog = {
-        "type": "Catalog",
-        "stac_version": "1.0.0",
-        "id": f"{processor_name}-training-output",
-        "description": (
-            "HEATWISE LCZ classification training artifacts."
-        ),
-        "links": [
-            {
-                "rel": "item",
-                "href": item_filename,
-                "type": "application/geo+json",
-            }
-        ],
-    }
-
-    with item_path.open("w", encoding="utf-8") as f:
-        json.dump(item, f, indent=2)
-
-    with catalog_path.open("w", encoding="utf-8") as f:
-        json.dump(catalog, f, indent=2)
-
-    return catalog_path
-
-
-def write_prediction_catalog(
-    output_tif: str | Path,
-    processor_name: str = PROCESSOR_NAME,
-    processor_version: str = PROCESSOR_VERSION,
-) -> Path:
-    """
-    Write a STAC catalog describing the generated LCZ classification map.
-    """
-    output_tif = Path(output_tif).resolve()
-    output_dir = output_tif.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    item_filename = "lcz_prediction_item.json"
-    item_path = output_dir / item_filename
-    catalog_path = output_dir / "catalog.json"
-
-    assets = {
-        "lcz_map": {
-            "href": output_tif.name,
-            "type": "image/tiff; application=geotiff",
-            "roles": ["data"],
-            "title": "LCZ classification map",
-        }
-    }
-
-    preview = output_tif.with_name(
-        f"{output_tif.stem}_preview.png"
     )
-
-    if preview.exists():
-        assets["preview"] = {
-            "href": preview.name,
-            "type": "image/png",
-            "roles": ["overview"],
-            "title": "LCZ classification preview",
-        }
-
-    item = {
-        "type": "Feature",
-        "stac_version": "1.0.0",
-        "stac_extensions": [
-            "https://stac-extensions.github.io/processing/v1.2.0/schema.json"
-        ],
-        "id": "lcz-prediction",
-        "geometry": None,
-        "properties": {
-            "datetime": datetime.now(timezone.utc).isoformat(),
-            "processing:software": {
-                processor_name: processor_version
-            },
-        },
-        "links": [],
-        "assets": assets,
-    }
-
-    catalog = {
-        "type": "Catalog",
-        "stac_version": "1.0.0",
-        "id": f"{processor_name}-prediction-output",
-        "description": (
-            "HEATWISE LCZ classification prediction output."
+    
+    train_input.add_argument(
+        "--input-catalog",
+        help=(
+            "Path to the staged STAC catalog.json containing the "
+            "`patch_h5` training asset."
         ),
-        "links": [
-            {
-                "rel": "item",
-                "href": item_filename,
-                "type": "application/geo+json",
-            }
-        ],
-    }
+    )
+    
+    p.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory for checkpoints, metrics, and training artifacts.",
+    )
+    
+    p.add_argument(
+        "--config",
+        required=True,
+        help="YAML with num_classes/batch_size/experiments/...",
+    )
+    
+    p.set_defaults(func=cmd_train)
 
-    with item_path.open("w", encoding="utf-8") as f:
-        json.dump(item, f, indent=2)
+    p = sub.add_parser(
+        "predict",
+        help="Sliding-window whole-scene inference -> LCZ map GeoTIFF.",
+    )
+    
+    p.add_argument(
+        "--config",
+        required=True,
+        help="YAML with modal/use_lst/model/class_order/... parameters.",
+    )
+    
+    p.add_argument(
+        "--input-catalog",
+        help=(
+            "Path to the staged STAC catalog.json containing the HSI, "
+            "Sentinel-2, and optional LST input assets."
+        ),
+    )
+    
+    p.add_argument(
+        "--weights",
+        help="Trained model checkpoint (.pth). Overrides config `weights`.",
+    )
+    
+    p.add_argument(
+        "--output",
+        help=(
+            "Overrides the config's `output` LCZ GeoTIFF path if given."
+        ),
+    )
+    
+    p.set_defaults(func=cmd_predict)
 
-    with catalog_path.open("w", encoding="utf-8") as f:
-        json.dump(catalog, f, indent=2)
+    return parser
 
-    return catalog_path
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
