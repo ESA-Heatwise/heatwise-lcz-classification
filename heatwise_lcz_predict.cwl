@@ -1,62 +1,171 @@
 cwlVersion: v1.2
-class: CommandLineTool
 
-label: HEATWISE LCZ Prediction
-doc: >
-  EOAP-compatible HEATWISE LCZ_HMSSNet whole-scene inference processor. Runs
-  sliding-window inference over a full HSI (+Sentinel-2, +optional LST) scene
-  with a trained checkpoint, producing an LCZ classification map GeoTIFF
-  (+ optional colour preview PNG).
+$namespaces:
+  s: https://schema.org/
 
-  As with heatwise-hsi-lst-prep's config, the `config` file's `inputs.*`
-  and `weights` paths are resolved against the container's working
-  directory. Under `cwltool` that's an empty per-job staging directory, NOT
-  the image's Dockerfile `WORKDIR /app` (confirmed with heatwise-hsi-lst-prep's
-  CWL). So for CWL use, every path *inside* the config must be an absolute
-  `/app/...` path into the image (baked in via `COPY . .`) -- see
-  `examples/predict_config_sample_docker.yaml`.
-  `examples/predict_config_sample.yaml` (relative `data/...` paths) is for
-  local/non-Docker runs only.
+s:softwareVersion: 0.1.1
+s:version: 0.1.1
 
-requirements:
-  DockerRequirement:
-    # Release-shaped image reference. Before publishing, build/tag this
-    # image locally with the same name so local cwltool runs exercise the
-    # exact tag that will later be pushed to the registry.
-    dockerImageId: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
-    dockerPull: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
+schemas:
+  - http://schema.org/version/9.0/schemaorg-current-http.rdf
 
-arguments:
-  # No baseCommand/`python /app/processor.py` here on purpose -- see
-  # heatwise_lcz_train.cwl's note: the image's ENTRYPOINT already supplies
-  # `python /app/processor.py`, and `docker run` arguments are appended to
-  # ENTRYPOINT rather than replacing it, so this CWL only contributes the
-  # `predict` subcommand + flags.
-  - predict
+$graph:
 
-inputs:
-  config:
-    type: File
-    inputBinding:
-      prefix: --config
-    doc: YAML with modal/use_lst/inputs/model/weights/class_order/... (see examples/predict_config_sample_docker.yaml for the CWL/Docker variant).
+  # -------------------------------------------------------------------------
+  # Main EOAP Workflow
+  # -------------------------------------------------------------------------
+  - class: Workflow
+    id: main
+    label: HEATWISE LCZ Prediction Workflow
+    doc: |
+      EOAP-compatible HEATWISE LCZ whole-scene prediction workflow.
 
-  output:
-    type: string
-    default: output/lcz_map.tif
-    inputBinding:
-      prefix: --output
-    doc: Output LCZ map GeoTIFF path (relative to the container working directory), overrides the config's `output`.
+      The workflow performs sliding-window LCZ inference using aligned
+      hyperspectral and Sentinel-2 imagery, with optional LST information,
+      and a trained LCZ_HMSSNet model checkpoint.
 
-outputs:
-  lcz_map:
-    type: File
-    outputBinding:
-      glob: $(inputs.output)
-    doc: LCZ classification map (GeoTIFF, colormap embedded).
+      EO raster inputs are provided through a staged STAC catalog directory.
+      The trained model checkpoint is provided as a separate file input.
+      The processor generates an LCZ classification map GeoTIFF, an optional
+      preview PNG, and an output STAC catalog describing the generated product.
 
-  lcz_map_preview:
-    type: File?
-    outputBinding:
-      glob: "**/*_preview.png"
-    doc: Optional colour preview PNG (only produced if the config sets save_png true).
+    requirements: []
+
+    inputs:
+
+      - id: config
+        type: File
+        label: prediction configuration
+        doc: |
+          YAML configuration controlling LCZ inference, including modality,
+          model architecture, class ordering, patch size, stride, batch size,
+          scaling, nodata handling, and preview generation.
+
+          EO raster paths and model weights are not provided through this
+          configuration in the EOAP workflow.
+
+      - id: input_catalog
+        type: Directory
+        label: input STAC catalog
+        doc: |
+          Directory containing a STAC catalog named catalog.json referencing
+          the staged hyperspectral, Sentinel-2, and optional LST input
+          products required for LCZ prediction.
+
+      - id: weights
+        type: File
+        label: trained model checkpoint
+        doc: |
+          Trained LCZ_HMSSNet checkpoint used for whole-scene prediction.
+
+      - id: output
+        type: string
+        label: output LCZ map filename
+        default: lcz_map.tif
+        doc: |
+          Output LCZ classification GeoTIFF path relative to the CWL working
+          directory.
+
+    steps:
+
+      processor:
+        run: "#lcz_predict_processor"
+
+        in:
+          config: config
+          input_catalog: input_catalog
+          weights: weights
+          output: output
+
+        out:
+          - output
+
+    outputs:
+
+      output:
+        type: Directory
+        outputSource: processor/output
+
+
+  # -------------------------------------------------------------------------
+  # LCZ prediction CommandLineTool
+  # -------------------------------------------------------------------------
+  - class: CommandLineTool
+    id: lcz_predict_processor
+    label: HEATWISE LCZ Prediction Processor
+    doc: |
+      HEATWISE LCZ_HMSSNet whole-scene inference processor.
+
+      The processor resolves the EO raster products from the staged STAC
+      catalog, loads the supplied trained model checkpoint, performs
+      sliding-window LCZ prediction, and writes the resulting classification
+      map together with optional preview imagery and an output STAC catalog.
+
+    requirements:
+
+      DockerRequirement:
+        dockerPull: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
+
+      InlineJavascriptRequirement: {}
+
+    baseCommand: python
+
+    arguments:
+      - /app/processor.py
+      - predict
+
+    inputs:
+
+      config:
+        type: File
+        label: prediction configuration
+        doc: |
+          YAML configuration controlling the LCZ prediction workflow,
+          including modality, model parameters, class order, patch size,
+          stride, batch size, scaling, and output options.
+        inputBinding:
+          prefix: --config
+
+      input_catalog:
+        type: Directory
+        label: input STAC catalog
+        doc: |
+          Directory containing catalog.json and the associated STAC Items
+          and Assets for the staged hyperspectral, Sentinel-2, and optional
+          LST EO products.
+
+          The path to catalog.json inside this directory is passed to the
+          processor through the --input-catalog argument.
+        inputBinding:
+          prefix: --input-catalog
+          valueFrom: $(self.path + "/catalog.json")
+
+      weights:
+        type: File
+        label: trained model checkpoint
+        doc: |
+          Trained LCZ_HMSSNet checkpoint supplied separately from the EO
+          raster input catalog.
+        inputBinding:
+          prefix: --weights
+
+      output:
+        type: string
+        label: output LCZ map filename
+        default: lcz_map.tif
+        doc: |
+          Output LCZ classification GeoTIFF path relative to the CWL working
+          directory.
+        inputBinding:
+          prefix: --output
+
+    outputs:
+
+      output:
+        type: Directory
+        doc: |
+          Complete CWL working directory containing all files produced by
+          the processor, including the LCZ classification GeoTIFF, optional
+          preview PNG, and generated STAC catalog.
+        outputBinding:
+          glob: "."

@@ -34,10 +34,6 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
 
 COPY . .
 
-# Absolute path: under CWL, cwltool overrides the container's working
-# directory to its own empty per-job staging dir (not WORKDIR /app above),
-# and a relative ENTRYPOINT arg would then fail to resolve -- confirmed by
-# an actual cwltool run against heatwise-patch-extraction's identical setup
-# (`python: can't open file '/<job-tmp>/processor.py'`, because ENTRYPOINT
-# args are *appended to*, not replaced by, `docker run` arguments, unlike CMD).
-ENTRYPOINT ["python", "/app/processor.py"]
+# Default command for direct Docker execution.
+# CWL runners override CMD with the CommandLineTool baseCommand and arguments.
+CMD ["python", "/app/processor.py"]
