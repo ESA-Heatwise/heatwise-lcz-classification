@@ -97,7 +97,7 @@ $graph:
     requirements:
 
       DockerRequirement:
-        dockerPull: ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1
+        dockerPull: ghcr.io/esa-heatwise/heatwise-lcz-classification:eoap-compliance
 
       InlineJavascriptRequirement: {}
 
