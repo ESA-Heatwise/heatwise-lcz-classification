@@ -1,19 +1,38 @@
 {
   "type": "Feature",
-  "stac_version": "1.0.0",
+  "stac_version": "1.1.0",
   "id": "Berlin-patches",
   "properties": {
     "datetime": null,
     "start_datetime": "2009-08-20T00:00:00Z",
     "end_datetime": "2023-07-09T23:59:59Z"
   },
-  "geometry": null,
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [13.258557775433335, 52.450607846758466],
+        [13.327672153441092, 52.450607846758466],
+        [13.327672153441092, 52.519622489722025],
+        [13.258557775433335, 52.519622489722025],
+        [13.258557775433335, 52.450607846758466]
+      ]
+    ]
+  },
+  "bbox": [
+    13.258557775433335,
+    52.450607846758466,
+    13.327672153441092,
+    52.519622489722025
+  ],
   "links": [],
   "assets": {
     "patch_h5": {
       "href": "Berlin_patches.h5",
       "type": "application/x-hdf5",
-      "roles": ["data"],
+      "roles": [
+        "data"
+      ],
       "title": "Berlin geographically isolated LCZ patch dataset"
     }
   }
