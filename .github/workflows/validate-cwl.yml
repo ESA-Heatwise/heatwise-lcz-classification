@@ -61,7 +61,7 @@ jobs:
       - name: Build processor Docker image
         run: |
           docker build \
-            -t ghcr.io/heatwise-lcz/heatwise-lcz-classification:0.1.1 \
+            -t ghcr.io/esa-heatwise/heatwise-lcz-classification:eoap-compliance \
             .
 
       - name: Run training CWL example

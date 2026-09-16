@@ -1,6 +1,6 @@
 {
   "type": "Catalog",
-  "stac_version": "1.0.0",
+  "stac_version": "1.1.0",
   "id": "heatwise-lcz-classification-sample-input",
   "description": "Sample staged inputs for HEATWISE LCZ classification training and prediction using the Berlin test data.",
   "links": [
